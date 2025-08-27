@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Doctors Cluster Prediction</title>
+  <link rel="stylesheet" href="/deploy/style.css" />
+</head>
+<body>
+  <div class="container">
+    <section>
+      <h1>Doctors Cluster Prediction</h1>
+      <div id="meta" style="display: none;"></div>
+      <label>
+        Model:
+        <select id="modelSelect"></select>
+      </label>
+      <div id="predictForm"></div>
+      <div class="button-group" style="display: flex; gap: 10px; margin-top: 20px;">
+        <button id="randomBtn" style="background-color: #28a745;">Random Data</button>
+        <button id="predictBtn">Predict</button>
+        <button id="resetBtn" style="background-color: #6c757d;">Reset</button>
+      </div>
+    </section>
+
+    <section>
+      <pre id="results"></pre>
+      <button id="scrollTopBtn" class="scroll-top-btn" onclick="scrollToTop()">↑ Back to Form</button>
+    </section>
+  </div>
+
+  <script>
+    let currentFeatureNames = [];
+    
+    async function loadMetadata() {
+      const res = await fetch('/metadata');
+      const data = await res.json();
+      const meta = document.getElementById('meta');
+      if (data.error) {
+        meta.textContent = 'Error: ' + data.error;
+        return;
+      }
+
+      // Store feature names globally
+      currentFeatureNames = data.feature_names || [];
+
+      // Models
+      const modelSelect = document.getElementById('modelSelect');
+      modelSelect.innerHTML = '';
+      (data.models || []).forEach(m => {
+        const opt = document.createElement('option');
+        opt.value = m; opt.textContent = m;
+        modelSelect.appendChild(opt);
+      });
+
+      // Create form only once
+      createForm();
+
+      meta.textContent = `Features: ${data.n_features}, Samples: ${data.n_samples}, Trained: ${data.training_date}`;
+    }
+
+    // Separate function to create form only once
+    function createForm() {
+      const form = document.getElementById('predictForm');
+      if (form.children.length === 0) {
+        // Create a grid container
+        const gridContainer = document.createElement('div');
+        gridContainer.className = 'form-grid';
+        
+        // Group features into rows of 3
+        for (let i = 0; i < currentFeatureNames.length; i += 3) {
+          const row = document.createElement('div');
+          row.className = 'form-row';
+          
+          // Add up to 3 features per row
+          for (let j = 0; j < 3 && i + j < currentFeatureNames.length; j++) {
+            const name = currentFeatureNames[i + j];
+            const wrapper = document.createElement('div');
+            wrapper.className = 'input-group';
+            
+            const label = document.createElement('label');
+            label.textContent = name;
+            label.htmlFor = `input-${name}`;
+            
+            let input;
+            
+            // Create dropdown lists for categorical variables
+            if (name.toLowerCase().includes('gender')) {
+              input = document.createElement('select');
+              input.innerHTML = `
+                <option value="">Select Gender</option>
+                <option value="0">0 - Female</option>
+                <option value="1">1 - Male</option>
+              `;
+            } else if (name.toLowerCase().includes('nationality')) {
+              input = document.createElement('select');
+              input.innerHTML = `
+                <option value="">Select Nationality</option>
+                <option value="0">0 - Egyptian</option>
+                <option value="1">1 - German</option>
+                <option value="2">2 - Palastinian</option>
+                <option value="3">3 - Russian</option>
+                <option value="4">4 - Syrian</option>
+                <option value="5">5 - Ukrainian</option>
+                <option value="6">6 - Other</option>
+              `;
+            } else if (name.toLowerCase().includes('department')) {
+              input = document.createElement('select');
+              input.innerHTML = `
+                <option value="">Select Department</option>
+                <option value="0">0 - General surgery</option>
+                <option value="1">1 - Gynacology</option>
+                <option value="2">2 - Oncology</option>
+                <option value="3">3 - Other</option>
+              `;
+            } else if (name.toLowerCase().includes('position')) {
+              input = document.createElement('select');
+              input.innerHTML = `
+                <option value="">Select Position</option>
+                <option value="0">0 - Assistant Head/Professor</option>
+                <option value="1">1 - Consultant</option>
+                <option value="2">2 - Head/Professor</option>
+                <option value="3">3 - Professor/Consultant</option>
+                <option value="4">4 - Surgeon</option>
+                <option value="5">5 - Other</option>
+              `;
+            } else {
+              // Create regular text input for other fields
+              input = document.createElement('input');
+              input.type = 'text';
+              
+              // Add example values as placeholders based on actual data
+              if (name.toLowerCase().includes('gender')) {
+                input.placeholder = '0 (F) or 1 (M)';
+              } else if (name.toLowerCase().includes('age')) {
+                input.placeholder = 'e.g., any age >= 40';
+              } else if (name.toLowerCase().includes('age_groups')) {
+                input.placeholder = 'e.g., 1, 2, 3, 4';
+              } else if (name.toLowerCase().includes('experience')) {
+                input.placeholder = 'e.g., 25, 33, 40';
+              } else if (name.toLowerCase().includes('assessment')) {
+                input.placeholder = 'e.g., 4.2, 4.7, 4.9';
+              } else if (name.toLowerCase().includes('publications')) {
+                input.placeholder = 'e.g., 50, 120, 200';
+              } else if (name.toLowerCase().includes('complaints')) {
+                input.placeholder = 'e.g., 1, 3, 5';
+              } else if (name.toLowerCase().includes('operations')) {
+                input.placeholder = 'e.g., 500, 800, 1200';
+              } else {
+                input.placeholder = 'Enter value';
+              }
+            }
+            
+            input.id = `input-${name}`;
+            input.name = name;
+            input.className = 'feature-input';
+            
+            wrapper.appendChild(label);
+            wrapper.appendChild(input);
+            row.appendChild(wrapper);
+          }
+          
+          gridContainer.appendChild(row);
+        }
+        
+        form.appendChild(gridContainer);
+      }
+    }
+
+    // Function to convert age to age group
+    function getAgeGroup(age) {
+      const ageNum = parseInt(age);
+      if (ageNum >= 40 && ageNum <= 49) return 1;
+      if (ageNum >= 50 && ageNum <= 59) return 2;
+      if (ageNum >= 60 && ageNum <= 69) return 3;
+      if (ageNum >= 70 && ageNum <= 79) return 4;
+      return null; // Invalid age range
+    }
+
+    async function predict() {
+      const modelName = document.getElementById('modelSelect').value;
+      if (!modelName) {
+        alert('Please select a model first');
+        return;
+      }
+      
+      // Get all input values
+      const row = {};
+      let hasValues = false;
+      
+      console.log('=== DEBUGGING FORM VALUES ===');
+      console.log('Current feature names:', currentFeatureNames);
+      
+      currentFeatureNames.forEach(name => {
+        const input = document.getElementById(`input-${name}`);
+        if (!input) {
+          console.error(`Input element not found for: ${name}`);
+          return;
+        }
+        
+        let value = input.value.trim();
+        
+        // Convert age to age group if age field is provided
+        if (name.toLowerCase().includes('age') && value !== '') {
+          const ageGroup = getAgeGroup(value);
+          if (ageGroup === null) {
+            alert(`Invalid age: ${value}. Age must be between 40-79 years.`);
+            return;
+          }
+          // Store the age group instead of the actual age
+          value = ageGroup.toString();
+          console.log(`Converted age ${input.value} to age group: ${value}`);
+        }
+        
+        row[name] = value;
+        if (value !== '') hasValues = true;
+        console.log(`Input ${name}: "${value}" (element: ${input.tagName}, id: ${input.id})`);
+      });
+      
+      console.log('Final payload features:', row);
+      console.log('Has values:', hasValues);
+      console.log('=== END DEBUGGING ===');
+      
+      if (!hasValues) {
+        alert('Please enter at least one feature value');
+        return;
+      }
+      
+      // Show loading state and clear previous results
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.textContent = 'Processing prediction...';
+      
+      // Disable predict button during processing
+      const predictBtn = document.getElementById('predictBtn');
+      predictBtn.disabled = true;
+      predictBtn.textContent = 'Predicting...';
+      
+      // Scroll to results section (end of page)
+      setTimeout(() => {
+        const scrollHeight = Math.max(
+          document.body.scrollHeight,
+        );
+        window.scrollTo({
+          top: scrollHeight,
+          behavior: 'smooth'
+        });
+      }, 100);
+      
+      try {
+        const payload = { model_name: modelName, features: row };
+        console.log('Sending payload:', payload); // Debug log
+        
+        const res = await fetch('/predict', { 
+          method: 'POST', 
+          headers: { 'Content-Type': 'application/json' }, 
+          body: JSON.stringify(payload) 
+        });
+        
+        const data = await res.json();
+        console.log('Received response:', data); // Debug log
+        
+        if (data.error) {
+          resultsDiv.innerHTML = '<div class="error">Error: ' + data.error + '</div>';
+        } else {
+          // Format the results nicely
+          const cluster = data.predictions[0];
+          const probabilities = data.probabilities ? data.probabilities[0] : null;
+          
+          let resultHTML = `<div class="prediction-result">
+            <h3>Prediction Result</h3>
+            <div class="cluster-info">
+              <span class="cluster-label">This doctor belongs to:</span>
+              <center>
+                <span class="cluster-number cluster-${cluster}">Cluster ${cluster}</span>
+                <h3 style="margin-top: 10px;">Proposed Recommendation:</h3>`;
+          
+            // Add specific recommendation for each cluster
+            if (cluster === 1) {
+              resultHTML += `<p>Professional training and development, encouragement of scientific research, management roles.</p>`;
+            } else if (cluster === 2) {
+              resultHTML += `<p>Supervisory roles, gradual reduction of operations, promoting scientific research, financial incentives.</p>`;
+            } else if (cluster === 3) {
+              resultHTML += `<p>Professional research encouragement, training to reduce errors, integration into supervision, and teaching.</p>`;
+            }
+          
+          resultHTML += `
+                </center>
+              </div>`;
+          
+          if (probabilities) {
+            resultHTML += `<div class="probabilities">
+              <h3>Prediction Probabilities:</h3>
+              <div class="prob-bar">`;
+            
+            probabilities.forEach((prob, idx) => {
+              const clusterNum = idx + 1;
+              const percentage = (prob * 100).toFixed(1);
+              const isCurrentCluster = clusterNum === cluster;
+              const barClass = isCurrentCluster ? 'current-cluster' : '';
+              
+              resultHTML += `<div class="prob-item ${barClass}">
+                <span class="cluster-num">Cluster ${clusterNum}</span>
+                <div class="prob-bar-container">
+                  <div class="prob-bar-fill" style="width: ${percentage}%"></div>
+                </div>
+                <span class="prob-percentage">${percentage}%</span>
+              </div>`;
+            });
+            
+            resultHTML += `</div></div>`;
+          }
+          
+          resultHTML += `</div>`;
+          resultsDiv.innerHTML = resultHTML;
+        }
+      } catch (error) {
+        resultsDiv.textContent = 'Error: ' + error.message;
+      } finally {
+        // Re-enable predict button
+        predictBtn.disabled = false;
+        predictBtn.textContent = 'Predict';
+      }
+    }
+
+    // Function to reset all form inputs
+    function resetForm() {
+      currentFeatureNames.forEach(name => {
+        const input = document.getElementById(`input-${name}`);
+        if (input) {
+          if (input.tagName === 'SELECT') {
+            input.selectedIndex = 0; // Reset to first option
+          } else {
+            input.value = ''; // Clear text inputs
+          }
+        }
+      });
+      
+      // Clear results
+      const resultsDiv = document.getElementById('results');
+      resultsDiv.textContent = '';
+      
+      console.log('Form reset successfully');
+    }
+
+    // Function to populate form with random doctor data
+    function populateRandomData() {
+      currentFeatureNames.forEach(name => {
+        const input = document.getElementById(`input-${name}`);
+        if (!input) return;
+        
+        let randomValue;
+        
+        if (name.toLowerCase().includes('nationality')) {
+          randomValue = Math.floor(Math.random() * 7); // 0-6
+        } else if (name.toLowerCase().includes('department')) {
+          randomValue = Math.floor(Math.random() * 4); // 0-3
+        } else if (name.toLowerCase().includes('position')) {
+          randomValue = Math.floor(Math.random() * 6); // 0-5
+        } else if (name.toLowerCase().includes('gender')) {
+          randomValue = Math.floor(Math.random() * 2); // 0 or 1
+        } else if (name.toLowerCase().includes('age')) {
+          // Generate age between 40-79, then convert to group
+          const age = Math.floor(Math.random() * 40) + 40; // 40-79
+          randomValue = age.toString();
+        } else if (name.toLowerCase().includes('experience')) {
+          randomValue = (Math.floor(Math.random() * 40)).toString(); // 0-39 years
+        } else if (name.toLowerCase().includes('assessment')) {
+          randomValue = (Math.floor(Math.random() * 5)+1).toString(); // 1-5 years
+        } else if (name.toLowerCase().includes('publications')) {
+          randomValue = (Math.floor(Math.random() * 1000)).toString(); // 0-999
+        } else if (name.toLowerCase().includes('complaints')) {
+          randomValue = (Math.floor(Math.random() * 100)).toString(); // 0-99
+        } else if (name.toLowerCase().includes('operations')) {
+          randomValue = (Math.floor(Math.random() * 1000)).toString(); // 0-999
+        } else {
+          // Default random value for unknown fields
+          randomValue = Math.floor(Math.random() * 100).toString();
+        }
+        
+        // Set the value
+        if (input.tagName === 'SELECT') {
+          // For select elements, find the option with matching value
+          for (let i = 0; i < input.options.length; i++) {
+            if (input.options[i].value === randomValue.toString()) {
+              input.selectedIndex = i;
+              break;
+            }
+          }
+        } else {
+          input.value = randomValue;
+        }
+      });
+      
+      console.log('Form populated with random data');
+    }
+
+    // Add event listeners
+    document.getElementById('predictBtn').addEventListener('click', predict);
+    document.getElementById('resetBtn').addEventListener('click', resetForm);
+    document.getElementById('randomBtn').addEventListener('click', populateRandomData);
+    
+    // Load metadata on page load
+    loadMetadata();
+    
+    // Scroll to top function
+    function scrollToTop() {
+      document.querySelector('.container').scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'start' 
+      });
+    }
+  </script>
+</body>
+</html>
